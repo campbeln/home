@@ -1,0 +1,3 @@
+home/config/secrets.js
+node_modules/*
+.vscode/*
