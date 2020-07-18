@@ -15,7 +15,9 @@ module.exports = function ($home) {
             country: $home.app.data.secrets.vacuum.country.toLowerCase(),
             continent: $home.app.data.secrets.vacuum.continent.toLowerCase(),
             connected: undefined,
-            status: undefined
+            lastCommand: undefined,
+            status: undefined,
+            battery: undefined
         },
         $vacuums = new $vacuumApi(oConfig.machineId, oConfig.country, oConfig.continent);
     ;
@@ -30,6 +32,20 @@ module.exports = function ($home) {
                         oConfig.connected = true;
                     });
                     $rosie.connect_and_wait_until_ready();
+
+                    $home.app.services.vacuum = {
+                        rosie: $rosie
+                    };
+
+                    //#
+                    $rosie.on("ChargeState", (sState) => {
+                        oConfig.state = sState;
+                        $home.io.event.fire("vacuum.state");
+                    });
+                    $rosie.on("BatteryInfo", (fBattery) => {
+                        oConfig.battery = Math.round(fBattery);
+                        $home.io.event.fire("vacuum.battery");
+                    });
                 })
             ;
         })
@@ -42,22 +58,69 @@ module.exports = function ($home) {
 
 	//#
 	$router.get("/", (oRequest, oResponse) => {
-        oResponse.json({
-            connected: oConfig.connected,
-            status: oConfig.status
-        });
+        let iCount = 0,
+            oReturnVal = {
+                connected: oConfig.connected,
+                lastCommand: oConfig.lastCommand
+            },
+            fnFinalize = () => {
+                oResponse.json($home.extend(oReturnVal, {
+                    state: oConfig.state,
+                    battery: oConfig.battery
+                }));
+            }
+        ;
+
+        //#
+        if (oConfig.connected) {
+            //#
+            $home.io.event.watch("vacuum.state", function () {
+                (++iCount > 1 && fnFinalize());
+                return $home.io.event.unwatch;
+            });
+            $home.io.event.watch("vacuum.battery", function () {
+                (++iCount > 1 && fnFinalize());
+                return $home.io.event.unwatch;
+            });
+            $rosie.run("GetChargeState");
+            $rosie.run("BatteryState");
+        }
+        //#
+        else {
+            oResponse.status(500).json(oReturnVal);
+        }
     });
 
 	//#
 	$router.get("/clean", (oRequest, oResponse) => {
         //#
         if (oConfig.connected) {
-            oConfig.status = "cleaning";
+            oConfig.lastCommand = "cleaning";
 
             $rosie.run("Clean");
             oResponse.json({
                 connected: oConfig.connected,
-                status: oConfig.status
+                lastCommand: oConfig.lastCommand
+            });
+        }
+        //#
+        else {
+            oResponse.json({
+                connected: oConfig.connected
+            });
+        }
+    });
+
+	//#
+	$router.get("/pause", (oRequest, oResponse) => {
+        //#
+        if (oConfig.connected) {
+            oConfig.lastCommand = "paused";
+
+            $rosie.run("Pause");
+            oResponse.json({
+                connected: oConfig.connected,
+                lastCommand: oConfig.lastCommand
             });
         }
         //#
@@ -72,13 +135,13 @@ module.exports = function ($home) {
 	$router.get("/stop", (oRequest, oResponse) => {
         //#
         if (oConfig.connected) {
-            oConfig.status = "charging";
+            oConfig.lastCommand = "charging";
 
             $rosie.run("Stop");
             $rosie.run("Charge");
             oResponse.json({
                 connected: oConfig.connected,
-                status: oConfig.status
+                lastCommand: oConfig.lastCommand
             });
         }
         //#
@@ -90,24 +153,37 @@ module.exports = function ($home) {
     });
 
 	//#
-	$router.get("/battery", (oRequest, oResponse) => {
+	$router.get("/find", (oRequest, oResponse) => {
         //#
         if (oConfig.connected) {
-            $rosie.run("BatteryState");
-            $rosie.on("BatteryInfo", (fBattery) => {
-                oResponse.json({
-                    batteryPercent: Math.round(fBattery),
-                    status: oConfig.status
-                });
-            });
+            $rosie.run("PlaySound");
         }
-        //#
-        else {
-            oResponse.json({
-                connected: oConfig.connected
-            });
-        }
-	});
+
+        oResponse.json({
+            connected: oConfig.connected,
+            lastCommand: oConfig.lastCommand
+        });
+    });
 
 	return $router;
 };
+
+/*
+vacbot.run("Clean", mode, action);
+vacbot.run("SpotArea", action, area);
+vacbot.run("CustomArea", action, map_position, cleanings);
+vacbot.run("Edge");
+vacbot.run("Spot");
+vacbot.run("Stop");
+vacbot.run("Pause");
+vacbot.run("Charge");
+vacbot.run("GetCleanState");
+vacbot.run("GetChargeState");
+vacbot.run("GetBatteryState");
+vacbot.run("PlaySound");
+vacbot.run('GetLifeSpan', 'main_brush');
+vacbot.run('GetLifeSpan', 'side_brush');
+vacbot.run('GetLifeSpan', 'filter');
+vacbot.run('GetWaterLevel');
+vacbot.run('SetWaterLevel', level);
+*/
