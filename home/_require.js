@@ -13,7 +13,7 @@ module.exports = function ($express) {
 
     //# Setup $ish.app and our .config
     require("./app.js")($ish, $express);
-    require("./secrets.live.js")($ish, $express);
+    require("../config/secrets.live.js")($ish, $express);
 
     // $ish.app.config = $ish.extend(
     //     $ish.app.config,
